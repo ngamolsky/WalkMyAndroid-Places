@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:ordering="sequentially">
+    <objectAnimator
+        android:propertyName="rotation"
+        android:duration="500"
+        android:valueFrom="-10"
+        android:valueTo="10"
+        android:repeatCount="infinite"
+        android:repeatMode= "reverse"/>
+    <objectAnimator
+        android:propertyName="rotation"
+        android:duration="100"
+        android:valueFrom="10"
+        android:valueTo="0"
+        android:repeatCount="1"/>
+</set>

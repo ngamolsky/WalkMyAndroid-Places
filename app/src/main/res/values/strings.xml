@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Walk My Android</string>
+    <string name="get_location">Get Location</string>
+    <string name="textview_hint">Press the button to get the last known location</string>
 </resources>
