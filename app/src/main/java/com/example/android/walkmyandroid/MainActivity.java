@@ -1,6 +1,8 @@
 package com.example.android.walkmyandroid;
 
 import android.Manifest;
+import android.animation.AnimatorInflater;
+import android.animation.AnimatorSet;
 import android.content.Intent;
 import android.content.IntentSender;
 import android.content.pm.PackageManager;
@@ -14,6 +16,7 @@ import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -22,6 +25,7 @@ import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.PendingResult;
 import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.common.api.Status;
+import com.google.android.gms.location.LocationListener;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.LocationSettingsRequest;
@@ -31,19 +35,24 @@ import com.google.android.gms.location.LocationSettingsStatusCodes;
 import java.util.Date;
 
 public class MainActivity extends AppCompatActivity implements
-        GoogleApiClient.OnConnectionFailedListener {
+        GoogleApiClient.OnConnectionFailedListener, GoogleApiClient.ConnectionCallbacks,
+        LocationListener {
 
     private static final int REQUEST_LOCATION_PERMISSION = 1;
     private static final int REQUEST_CHECK_SETTINGS = 2;
     private static final String LAST_DATE_KEY = "last_date";
     private static final String LAST_ADDRESS_KEY = "last_address";
+    private static final String TRACKING_LOCATION_KEY = "tracking_location";
     private static final String TAG = MainActivity.class.getSimpleName();
     private AddressResultReceiver mResultReceiver;
     private GoogleApiClient mGoogleApiClient;
     private Button mLocationButton;
     private TextView mLocationTextView;
+    private ImageView mAndroidImageView;
     private String mLastAddress;
     private long mLastUpdateDate;
+    private boolean mTrackingLocation;
+    private AnimatorSet mRotateAnim;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -52,12 +61,14 @@ public class MainActivity extends AppCompatActivity implements
 
         mLocationButton = (Button) findViewById(R.id.button_location);
         mLocationTextView = (TextView) findViewById(R.id.textview_location);
+        mAndroidImageView = (ImageView) findViewById(R.id.imageview_android);
 
         // Create an instance of GoogleApiClient
         if (mGoogleApiClient == null) {
             mGoogleApiClient = new GoogleApiClient.Builder(this)
                     .enableAutoManage(this, this)
                     .addOnConnectionFailedListener(this)
+                    .addConnectionCallbacks(this)
                     .addApi(LocationServices.API)
                     .build();
         }
@@ -66,32 +77,45 @@ public class MainActivity extends AppCompatActivity implements
         if (savedInstanceState != null) {
             mLastAddress = savedInstanceState.getString(LAST_ADDRESS_KEY);
             mLastUpdateDate = savedInstanceState.getLong(LAST_DATE_KEY);
-            mLocationTextView.setText(getString(R.string.address_text,
-                    mLastAddress, mLastUpdateDate));
+            mTrackingLocation = savedInstanceState.getBoolean(TRACKING_LOCATION_KEY);
+            if (mTrackingLocation) {
+                mLocationTextView.setText(getString(R.string.address_text,
+                        mLastAddress, mLastUpdateDate));
+            }
         }
 
+        // Toggle the tracking state.
         mLocationButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                getLocation();
-                // Set a loading text while you wait for the address to be returned
-                mLocationTextView.setText(getString(R.string.address_text,
-                        getString(R.string.loading),
-                        new Date()));
+                if (!mTrackingLocation) {
+                    startTrackingLocation();
+                    mTrackingLocation = true;
+                    // Set a loading text while you wait for the address to be returned
+                    mLocationTextView.setText(getString(R.string.address_text,
+                            getString(R.string.loading),
+                            new Date()));
+                } else {
+                    stopTrackingLocation();
+                    mTrackingLocation = false;
+                }
             }
         });
 
         // Create a Result Receiver object and associate it with the current thread
         mResultReceiver = new AddressResultReceiver(new Handler());
-    }
 
+        // Set up the animation
+        mRotateAnim = (AnimatorSet) AnimatorInflater.loadAnimator(this, R.animator.rotate);
+        mRotateAnim.setTarget(mAndroidImageView);
+    }
 
     /**
      * Request location permissions and gets the location using the FusedLocationApi if
      * the permission is granted and the GoogleApiClient is connected, and checks the user's
      * location settings.
      */
-    private void getLocation() {
+    private void startTrackingLocation() {
         if (mGoogleApiClient.isConnected()) {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                     != PackageManager.PERMISSION_GRANTED) {
@@ -100,57 +124,69 @@ public class MainActivity extends AppCompatActivity implements
 
             } else {
 
-                // If the permission exists, get the last location and start the reverse geocode
-                Location location = LocationServices.FusedLocationApi.getLastLocation(
-                        mGoogleApiClient);
-
-                if (location != null) {
-                    mLastUpdateDate = location.getTime();
-                    startIntentService(location);
-
-                    // Create the location request and check the device settings
-                    LocationRequest locationRequest = getLocationRequest();
-                    LocationSettingsRequest.Builder builder = new LocationSettingsRequest.Builder()
-                            .addLocationRequest(locationRequest);
-                    PendingResult<LocationSettingsResult> result =
-                            LocationServices.SettingsApi.checkLocationSettings(mGoogleApiClient,
-                                    builder.build());
-                    result.setResultCallback(new ResultCallback<LocationSettingsResult>() {
-                        @Override
-                        public void onResult(
-                                @NonNull LocationSettingsResult locationSettingsResult) {
-                            Status status = locationSettingsResult.getStatus();
-                            Log.d(TAG, "onResult: " + status.getStatusMessage());
-                            switch (status.getStatusCode()) {
-                                case LocationSettingsStatusCodes.SUCCESS:
-                                    break;
-                                case LocationSettingsStatusCodes.RESOLUTION_REQUIRED:
-                                    // Location settings are not satisfied, but this can be fixed
-                                    // by showing the user a dialog
-                                    try {
-                                        // Show the dialog by calling startResolutionForResult()
-                                        status.startResolutionForResult(
-                                                MainActivity.this,
-                                                REQUEST_CHECK_SETTINGS);
-                                    } catch (IntentSender.SendIntentException e) {
-                                        // Ignore the error.
-                                    }
-                                    break;
-                                case LocationSettingsStatusCodes.SETTINGS_CHANGE_UNAVAILABLE:
-                                    // Location settings are not satisfied. However, we have no way
-                                    // to fix the settings so we won't show the dialog
-                                    break;
-                            }
+                // Create the location request and check the device settings
+                final LocationRequest locationRequest = getLocationRequest();
+                LocationSettingsRequest.Builder builder = new LocationSettingsRequest.Builder()
+                        .addLocationRequest(locationRequest);
+                PendingResult<LocationSettingsResult> result =
+                        LocationServices.SettingsApi.checkLocationSettings(mGoogleApiClient,
+                                builder.build());
+                result.setResultCallback(new ResultCallback<LocationSettingsResult>() {
+                    @Override
+                    public void onResult(
+                            @NonNull LocationSettingsResult locationSettingsResult) {
+                        Status status = locationSettingsResult.getStatus();
+                        switch (status.getStatusCode()) {
+                            case LocationSettingsStatusCodes.SUCCESS:
+                                // If the settings are correct, update the button, play the
+                                // animation and request updates
+                                mLocationButton.setText(R.string.stop_tracking_location);
+                                mRotateAnim.start();
+                                try {
+                                    LocationServices.FusedLocationApi.requestLocationUpdates(
+                                            mGoogleApiClient, locationRequest,
+                                            MainActivity.this);
+                                } catch (SecurityException e) {
+                                    Log.e(TAG, "onResult: ", e);
+                                }
+                                break;
+                            case LocationSettingsStatusCodes.RESOLUTION_REQUIRED:
+                                // Location settings are not satisfied, but this can be fixed
+                                // by showing the user a dialog
+                                try {
+                                    // Show the dialog by calling startResolutionForResult()
+                                    status.startResolutionForResult(
+                                            MainActivity.this,
+                                            REQUEST_CHECK_SETTINGS);
+                                } catch (IntentSender.SendIntentException e) {
+                                    // Ignore the error.
+                                }
+                                break;
+                            case LocationSettingsStatusCodes.SETTINGS_CHANGE_UNAVAILABLE:
+                                // Location settings are not satisfied. However, we have no way
+                                // to fix the settings so we won't show the dialog
+                                break;
                         }
-                    });
-                } else {
-                    mLocationTextView.setText(R.string.no_location);
-                }
+                    }
+                });
             }
         } else {
             Toast.makeText(MainActivity.this, R.string.google_api_client_not_connected,
                     Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /**
+     * Stop location updates, and stop the animation.
+     */
+    private void stopTrackingLocation() {
+        if (mGoogleApiClient.isConnected()) {
+            LocationServices.FusedLocationApi.removeLocationUpdates(
+                    mGoogleApiClient, this);
+        }
+        mLocationButton.setText(R.string.start_tracking_location);
+        mLocationTextView.setText(R.string.textview_hint);
+        mRotateAnim.end();
     }
 
     /**
@@ -179,10 +215,33 @@ public class MainActivity extends AppCompatActivity implements
     }
 
     /**
+     * Callback that is invoked by the FusedLocationApi, which delivers location updates with the
+     * parameters specified by the location request.
+     *
+     * @param location The new location.
+     */
+    @Override
+    public void onLocationChanged(Location location) {
+        mLastUpdateDate = location.getTime();
+        startIntentService(location);
+    }
+
+    /**
+     * Pause the location tracking when the Activity is paused.
+     */
+    @Override
+    protected void onPause() {
+        super.onPause();
+        stopTrackingLocation();
+    }
+
+
+    /**
      * Save the last location on configuration change
      */
     @Override
     protected void onSaveInstanceState(Bundle outState) {
+        outState.putBoolean(TRACKING_LOCATION_KEY, mTrackingLocation);
         outState.putLong(LAST_DATE_KEY, mLastUpdateDate);
         outState.putString(LAST_ADDRESS_KEY, mLastAddress);
         super.onSaveInstanceState(outState);
@@ -204,7 +263,7 @@ public class MainActivity extends AppCompatActivity implements
                 // If the permission is granted, get the location, otherwise, show a Toast
                 if (grantResults.length > 0
                         && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    getLocation();
+                    startTrackingLocation();
                 } else {
                     Toast.makeText(this,
                             R.string.location_permission_denied,
@@ -237,10 +296,29 @@ public class MainActivity extends AppCompatActivity implements
             if (resultCode == RESULT_CANCELED) {
                 Log.d(TAG, "onActivityResult: cancelled");
             } else if (resultCode == RESULT_OK) {
-                Log.d(TAG, "onActivityResult: accepted");
+                startTrackingLocation();
             }
         }
     }
+
+    /**
+     * Callback that is invoked when the GoogleAPiClient connects, and starts tracking
+     * if the user turned it on before the connection.
+     *
+     * @param connectionHint Bundle of data provided to clients by Google Play services.
+     *                       May be null if no content is provided by the service.
+     */
+    @Override
+    public void onConnected(Bundle connectionHint) {
+        if (mTrackingLocation) {
+            startTrackingLocation();
+        }
+    }
+
+    @Override
+    public void onConnectionSuspended(int cause) {
+    }
+
 
     /**
      * Extension of the ResultReceiver class for receiving the results from the reverse geocode
@@ -253,14 +331,16 @@ public class MainActivity extends AppCompatActivity implements
 
         @Override
         protected void onReceiveResult(int resultCode, Bundle resultData) {
+            if (mTrackingLocation) {
 
-            // Get the data from the service, either the address or an error message
-            mLastAddress = resultData.getString(Constants.RESULT_DATA_KEY);
+                // Get the data from the service, either the address or an error message
+                mLastAddress = resultData.getString(Constants.RESULT_DATA_KEY);
 
-            // Display the address string or an error message sent from the intent service
-            if (mLastUpdateDate > 0) {
-                mLocationTextView.setText(getString(R.string.address_text, mLastAddress,
-                        mLastUpdateDate));
+                // Display the address string or an error message sent from the intent service
+                if (mLastUpdateDate > 0) {
+                    mLocationTextView.setText(getString(R.string.address_text, mLastAddress,
+                            mLastUpdateDate));
+                }
             }
         }
     }

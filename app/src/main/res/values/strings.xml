@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">Walk My Android</string>
     <string name="get_location">Get Location</string>
-    <string name="textview_hint">Press the button to get the last known location</string>
+    <string name="textview_hint">Press the button to get the start tracking the location</string>
     <string name="location_text">"Latitude: %1$.4f \n Longitude: %2$.4f \n Timestamp: %3$tr"</string>
     <string name="address_text">"Address: %1$s \n Timestamp: %2$tr"</string>
     <string name="google_api_client_not_connected">Google Api Client is not connected yet</string>
@@ -11,4 +11,6 @@
     <string name="invalid_lat_long_used">Invalid Coordinates Supplied</string>
     <string name="no_address_found">No Address Found</string>
     <string name="loading">Loading…</string>
+    <string name="start_tracking_location">Start Tracking Location</string>
+    <string name="stop_tracking_location">Stop Tracking Location</string>
 </resources>
