@@ -2,6 +2,7 @@ package com.example.android.walkmyandroid;
 
 import android.Manifest;
 import android.content.Intent;
+import android.content.IntentSender;
 import android.content.pm.PackageManager;
 import android.location.Location;
 import android.os.Bundle;
@@ -18,7 +19,14 @@ import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.PendingResult;
+import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.common.api.Status;
+import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.location.LocationSettingsRequest;
+import com.google.android.gms.location.LocationSettingsResult;
+import com.google.android.gms.location.LocationSettingsStatusCodes;
 
 import java.util.Date;
 
@@ -26,6 +34,7 @@ public class MainActivity extends AppCompatActivity implements
         GoogleApiClient.OnConnectionFailedListener {
 
     private static final int REQUEST_LOCATION_PERMISSION = 1;
+    private static final int REQUEST_CHECK_SETTINGS = 2;
     private static final String LAST_DATE_KEY = "last_date";
     private static final String LAST_ADDRESS_KEY = "last_address";
     private static final String TAG = MainActivity.class.getSimpleName();
@@ -78,8 +87,9 @@ public class MainActivity extends AppCompatActivity implements
 
 
     /**
-     * Requests location permissions and gets the location using the FusedLocationApi if
-     * the permission is granted and the GoogleApiClient is connected.
+     * Request location permissions and gets the location using the FusedLocationApi if
+     * the permission is granted and the GoogleApiClient is connected, and checks the user's
+     * location settings.
      */
     private void getLocation() {
         if (mGoogleApiClient.isConnected()) {
@@ -97,17 +107,65 @@ public class MainActivity extends AppCompatActivity implements
                 if (location != null) {
                     mLastUpdateDate = location.getTime();
                     startIntentService(location);
+
+                    // Create the location request and check the device settings
+                    LocationRequest locationRequest = getLocationRequest();
+                    LocationSettingsRequest.Builder builder = new LocationSettingsRequest.Builder()
+                            .addLocationRequest(locationRequest);
+                    PendingResult<LocationSettingsResult> result =
+                            LocationServices.SettingsApi.checkLocationSettings(mGoogleApiClient,
+                                    builder.build());
+                    result.setResultCallback(new ResultCallback<LocationSettingsResult>() {
+                        @Override
+                        public void onResult(
+                                @NonNull LocationSettingsResult locationSettingsResult) {
+                            Status status = locationSettingsResult.getStatus();
+                            Log.d(TAG, "onResult: " + status.getStatusMessage());
+                            switch (status.getStatusCode()) {
+                                case LocationSettingsStatusCodes.SUCCESS:
+                                    break;
+                                case LocationSettingsStatusCodes.RESOLUTION_REQUIRED:
+                                    // Location settings are not satisfied, but this can be fixed
+                                    // by showing the user a dialog
+                                    try {
+                                        // Show the dialog by calling startResolutionForResult()
+                                        status.startResolutionForResult(
+                                                MainActivity.this,
+                                                REQUEST_CHECK_SETTINGS);
+                                    } catch (IntentSender.SendIntentException e) {
+                                        // Ignore the error.
+                                    }
+                                    break;
+                                case LocationSettingsStatusCodes.SETTINGS_CHANGE_UNAVAILABLE:
+                                    // Location settings are not satisfied. However, we have no way
+                                    // to fix the settings so we won't show the dialog
+                                    break;
+                            }
+                        }
+                    });
                 } else {
                     mLocationTextView.setText(R.string.no_location);
                 }
-
-
             }
         } else {
             Toast.makeText(MainActivity.this, R.string.google_api_client_not_connected,
                     Toast.LENGTH_SHORT).show();
         }
     }
+
+    /**
+     * Set up the location request.
+     *
+     * @return The LocationRequest object containing the desired parameters.
+     */
+    private LocationRequest getLocationRequest() {
+        LocationRequest locationRequest = new LocationRequest();
+        locationRequest.setInterval(10000);
+        locationRequest.setFastestInterval(5000);
+        locationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
+        return locationRequest;
+    }
+
 
     /**
      * Method for starting the service to fetch the address from the set of coordinates.
@@ -160,6 +218,28 @@ public class MainActivity extends AppCompatActivity implements
     @Override
     public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
         Log.e(TAG, connectionResult.getErrorMessage());
+    }
+
+    /**
+     * This method is called when the device's location settings do not match the location request,
+     * and the user must choose to change them from a dialog.
+     *
+     * @param requestCode The integer that was specified in the request for result, in this case it
+     *                    is REQUEST_CHECK_SETTINGS.
+     * @param resultCode  RESULT_OK if the user accepts the dialog, RESULT_CANCELED otherwise
+     * @param data        The Intent passed into the caller, used to carry extras. Not useful in
+     *                    this case.
+     */
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_CHECK_SETTINGS) {
+            if (resultCode == RESULT_CANCELED) {
+                Log.d(TAG, "onActivityResult: cancelled");
+            } else if (resultCode == RESULT_OK) {
+                Log.d(TAG, "onActivityResult: accepted");
+            }
+        }
     }
 
     /**
