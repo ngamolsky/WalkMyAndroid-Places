@@ -21,6 +21,8 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GooglePlayServicesNotAvailableException;
+import com.google.android.gms.common.GooglePlayServicesRepairableException;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.PendingResult;
 import com.google.android.gms.common.api.ResultCallback;
@@ -35,6 +37,7 @@ import com.google.android.gms.location.places.Place;
 import com.google.android.gms.location.places.PlaceLikelihood;
 import com.google.android.gms.location.places.PlaceLikelihoodBuffer;
 import com.google.android.gms.location.places.Places;
+import com.google.android.gms.location.places.ui.PlacePicker;
 
 import java.util.Date;
 
@@ -44,6 +47,7 @@ public class MainActivity extends AppCompatActivity implements
 
     private static final int REQUEST_LOCATION_PERMISSION = 1;
     private static final int REQUEST_CHECK_SETTINGS = 2;
+    private static final int REQUEST_PICK_PLACE = 3;
     private static final String LAST_DATE_KEY = "last_date";
     private static final String LAST_ADDRESS_KEY = "last_address";
     private static final String LAST_PLACE_NAME_KEY = "last_place";
@@ -52,6 +56,7 @@ public class MainActivity extends AppCompatActivity implements
     private AddressResultReceiver mResultReceiver;
     private GoogleApiClient mGoogleApiClient;
     private Button mLocationButton;
+    private Button mPlacePickerButton;
     private TextView mLocationTextView;
     private ImageView mAndroidImageView;
     private String mLastAddress;
@@ -66,6 +71,7 @@ public class MainActivity extends AppCompatActivity implements
         setContentView(R.layout.activity_main);
 
         mLocationButton = (Button) findViewById(R.id.button_location);
+        mPlacePickerButton = (Button) findViewById(R.id.button_placepicker);
         mLocationTextView = (TextView) findViewById(R.id.textview_location);
         mAndroidImageView = (ImageView) findViewById(R.id.imageview_android);
 
@@ -86,7 +92,7 @@ public class MainActivity extends AppCompatActivity implements
             mLastPlaceName = savedInstanceState.getString(LAST_PLACE_NAME_KEY);
             mLastUpdateDate = savedInstanceState.getLong(LAST_DATE_KEY);
             mTrackingLocation = savedInstanceState.getBoolean(TRACKING_LOCATION_KEY);
-            if (mTrackingLocation) {
+            if(mTrackingLocation || mLastUpdateDate > 0) {
                 mLocationTextView.setText(getString(R.string.address_text,
                         mLastPlaceName, mLastAddress, mLastUpdateDate));
             }
@@ -107,6 +113,19 @@ public class MainActivity extends AppCompatActivity implements
                 } else {
                     stopTrackingLocation();
                     mTrackingLocation = false;
+                }
+            }
+        });
+
+        // Start the Place Picker Dialog
+        mPlacePickerButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                PlacePicker.IntentBuilder builder = new PlacePicker.IntentBuilder();
+                try {
+                    startActivityForResult(builder.build(MainActivity.this), REQUEST_PICK_PLACE);
+                } catch (GooglePlayServicesRepairableException | GooglePlayServicesNotAvailableException e) {
+                    e.printStackTrace();
                 }
             }
         });
@@ -292,24 +311,43 @@ public class MainActivity extends AppCompatActivity implements
 
     /**
      * This method is called when the device's location settings do not match the location request,
-     * and the user must choose to change them from a dialog.
+     * and the user must choose to change them from a dialog, or when the user returns from the
+     * place picker dialog.
      *
      * @param requestCode The integer that was specified in the request for result, in this case it
-     *                    is REQUEST_CHECK_SETTINGS.
+     *                    is REQUEST_CHECK_SETTINGS or REQUEST_PICK_PLACE.
      * @param resultCode  RESULT_OK if the user accepts the dialog, RESULT_CANCELED otherwise
-     * @param data        The Intent passed into the caller, used to carry extras. Not useful in
-     *                    this case.
+     * @param data        The Intent passed into the caller, used to carry extras. If the
+     *                    request was for the place picker, this will contain the Place object.
      */
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_CHECK_SETTINGS) {
-            if (resultCode == RESULT_CANCELED) {
-                Log.d(TAG, "onActivityResult: cancelled");
-            } else if (resultCode == RESULT_OK) {
-                startTrackingLocation();
-            }
+
+        switch (requestCode){
+            case REQUEST_CHECK_SETTINGS:
+                if (resultCode == RESULT_CANCELED) {
+                    Log.d(TAG, "onActivityResult: cancelled");
+                } else if (resultCode == RESULT_OK) {
+                    startTrackingLocation();
+                }
+                break;
+            case REQUEST_PICK_PLACE:
+                if (resultCode == RESULT_OK) {
+                    Place place = PlacePicker.getPlace(this, data);
+                    mLastAddress = place.getAddress().toString();
+                    mLastPlaceName = place.getName().toString();
+                    mLastUpdateDate = System.currentTimeMillis();
+                    setAndroidType(place);
+                    mLocationTextView.setText(
+                            getString(R.string.address_text, place.getName(),
+                                    place.getAddress(), mLastUpdateDate));
+                } else {
+                    mLocationTextView.setText(R.string.no_place);
+                }
+                break;
         }
+
     }
 
     /**
