@@ -31,6 +31,10 @@ import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.LocationSettingsRequest;
 import com.google.android.gms.location.LocationSettingsResult;
 import com.google.android.gms.location.LocationSettingsStatusCodes;
+import com.google.android.gms.location.places.Place;
+import com.google.android.gms.location.places.PlaceLikelihood;
+import com.google.android.gms.location.places.PlaceLikelihoodBuffer;
+import com.google.android.gms.location.places.Places;
 
 import java.util.Date;
 
@@ -42,6 +46,7 @@ public class MainActivity extends AppCompatActivity implements
     private static final int REQUEST_CHECK_SETTINGS = 2;
     private static final String LAST_DATE_KEY = "last_date";
     private static final String LAST_ADDRESS_KEY = "last_address";
+    private static final String LAST_PLACE_NAME_KEY = "last_place";
     private static final String TRACKING_LOCATION_KEY = "tracking_location";
     private static final String TAG = MainActivity.class.getSimpleName();
     private AddressResultReceiver mResultReceiver;
@@ -52,6 +57,7 @@ public class MainActivity extends AppCompatActivity implements
     private String mLastAddress;
     private long mLastUpdateDate;
     private boolean mTrackingLocation;
+    private String mLastPlaceName;
     private AnimatorSet mRotateAnim;
 
     @Override
@@ -69,18 +75,20 @@ public class MainActivity extends AppCompatActivity implements
                     .enableAutoManage(this, this)
                     .addOnConnectionFailedListener(this)
                     .addConnectionCallbacks(this)
+                    .addApi(Places.PLACE_DETECTION_API)
                     .addApi(LocationServices.API)
                     .build();
         }
 
-        // Restore the location if the activity is recreated
+        // Restore the state if the activity is recreated
         if (savedInstanceState != null) {
             mLastAddress = savedInstanceState.getString(LAST_ADDRESS_KEY);
+            mLastPlaceName = savedInstanceState.getString(LAST_PLACE_NAME_KEY);
             mLastUpdateDate = savedInstanceState.getLong(LAST_DATE_KEY);
             mTrackingLocation = savedInstanceState.getBoolean(TRACKING_LOCATION_KEY);
             if (mTrackingLocation) {
                 mLocationTextView.setText(getString(R.string.address_text,
-                        mLastAddress, mLastUpdateDate));
+                        mLastPlaceName, mLastAddress, mLastUpdateDate));
             }
         }
 
@@ -93,6 +101,7 @@ public class MainActivity extends AppCompatActivity implements
                     mTrackingLocation = true;
                     // Set a loading text while you wait for the address to be returned
                     mLocationTextView.setText(getString(R.string.address_text,
+                            getString(R.string.loading),
                             getString(R.string.loading),
                             new Date()));
                 } else {
@@ -186,6 +195,7 @@ public class MainActivity extends AppCompatActivity implements
         }
         mLocationButton.setText(R.string.start_tracking_location);
         mLocationTextView.setText(R.string.textview_hint);
+        mAndroidImageView.setImageResource(R.drawable.android_plain);
         mRotateAnim.end();
     }
 
@@ -244,6 +254,7 @@ public class MainActivity extends AppCompatActivity implements
         outState.putBoolean(TRACKING_LOCATION_KEY, mTrackingLocation);
         outState.putLong(LAST_DATE_KEY, mLastUpdateDate);
         outState.putString(LAST_ADDRESS_KEY, mLastAddress);
+        outState.putString(LAST_PLACE_NAME_KEY, mLastPlaceName);
         super.onSaveInstanceState(outState);
     }
 
@@ -319,6 +330,37 @@ public class MainActivity extends AppCompatActivity implements
     public void onConnectionSuspended(int cause) {
     }
 
+    /**
+     * Set the Android image to reflect the Place type if it is it a school gym, restaurant
+     * or library, otherwise reset it to the plain Android.
+     *
+     * @param currentPlace The current place.
+     */
+    private void setAndroidType(Place currentPlace) {
+        int drawableID = -1;
+        for (Integer placeType : currentPlace.getPlaceTypes()) {
+            switch (placeType) {
+                case Place.TYPE_SCHOOL:
+                    drawableID = R.drawable.android_school;
+                    break;
+                case Place.TYPE_GYM:
+                    drawableID = R.drawable.android_gym;
+                    break;
+                case Place.TYPE_RESTAURANT:
+                    drawableID = R.drawable.android_restaurant;
+                    break;
+                case Place.TYPE_LIBRARY:
+                    drawableID = R.drawable.android_library;
+                    break;
+            }
+        }
+
+        if (drawableID < 0) {
+            drawableID = R.drawable.android_plain;
+        }
+        mAndroidImageView.setImageResource(drawableID);
+    }
+
 
     /**
      * Extension of the ResultReceiver class for receiving the results from the reverse geocode
@@ -330,19 +372,47 @@ public class MainActivity extends AppCompatActivity implements
         }
 
         @Override
-        protected void onReceiveResult(int resultCode, Bundle resultData) {
+        protected void onReceiveResult(int resultCode, Bundle resultData) throws SecurityException {
             if (mTrackingLocation) {
-
                 // Get the data from the service, either the address or an error message
                 mLastAddress = resultData.getString(Constants.RESULT_DATA_KEY);
 
-                // Display the address string or an error message sent from the intent service
-                if (mLastUpdateDate > 0) {
-                    mLocationTextView.setText(getString(R.string.address_text, mLastAddress,
-                            mLastUpdateDate));
-                }
+                // Get the current place from the Places API
+                PendingResult<PlaceLikelihoodBuffer> placeResult = Places.PlaceDetectionApi
+                        .getCurrentPlace(mGoogleApiClient, null);
+                placeResult.setResultCallback(new ResultCallback<PlaceLikelihoodBuffer>() {
+                    @Override
+                    public void onResult(@NonNull PlaceLikelihoodBuffer likelyPlaces) {
+                        // If a you get a result, get the most likely place and update the place
+                        // name and picture
+                        if (likelyPlaces.getStatus().isSuccess()) {
+                            float maxLikelihood = 0;
+                            Place currentPlace = null;
+                            for (PlaceLikelihood placeLikelihood : likelyPlaces) {
+                                if (maxLikelihood < placeLikelihood.getLikelihood()) {
+                                    maxLikelihood = placeLikelihood.getLikelihood();
+                                    currentPlace = placeLikelihood.getPlace();
+                                }
+                            }
+
+                            if (currentPlace != null) {
+                                mLastPlaceName = currentPlace.getName().toString();
+                                setAndroidType(currentPlace);
+                                mLocationTextView.setText(
+                                        getString(R.string.address_text, mLastPlaceName,
+                                                mLastAddress, mLastUpdateDate));
+                            }
+                            // Otherwise, show an error
+                        } else {
+                            mLocationTextView.setText(
+                                    getString(R.string.address_text,
+                                            getString(R.string.no_place),
+                                            mLastAddress, mLastUpdateDate));
+                        }
+                        likelyPlaces.release();
+                    }
+                });
             }
         }
     }
-
 }
