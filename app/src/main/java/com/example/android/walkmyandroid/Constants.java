@@ -1,6 +1,6 @@
 package com.example.android.walkmyandroid;
 
-public final class Constants {
+final class Constants {
     static final int SUCCESS_RESULT = 0;
     static final int FAILURE_RESULT = 1;
     static final String PACKAGE_NAME =

@@ -21,8 +21,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
-import com.google.android.gms.common.GooglePlayServicesNotAvailableException;
-import com.google.android.gms.common.GooglePlayServicesRepairableException;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.PendingResult;
 import com.google.android.gms.common.api.ResultCallback;
@@ -37,7 +35,9 @@ import com.google.android.gms.location.places.Place;
 import com.google.android.gms.location.places.PlaceLikelihood;
 import com.google.android.gms.location.places.PlaceLikelihoodBuffer;
 import com.google.android.gms.location.places.Places;
+import com.google.android.gms.location.places.ui.PlaceAutocompleteFragment;
 import com.google.android.gms.location.places.ui.PlacePicker;
+import com.google.android.gms.location.places.ui.PlaceSelectionListener;
 
 import java.util.Date;
 
@@ -56,7 +56,6 @@ public class MainActivity extends AppCompatActivity implements
     private AddressResultReceiver mResultReceiver;
     private GoogleApiClient mGoogleApiClient;
     private Button mLocationButton;
-    private Button mPlacePickerButton;
     private TextView mLocationTextView;
     private ImageView mAndroidImageView;
     private String mLastAddress;
@@ -64,6 +63,7 @@ public class MainActivity extends AppCompatActivity implements
     private boolean mTrackingLocation;
     private String mLastPlaceName;
     private AnimatorSet mRotateAnim;
+    private PlaceAutocompleteFragment mAutocompleteFragment;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,7 +71,6 @@ public class MainActivity extends AppCompatActivity implements
         setContentView(R.layout.activity_main);
 
         mLocationButton = (Button) findViewById(R.id.button_location);
-        mPlacePickerButton = (Button) findViewById(R.id.button_placepicker);
         mLocationTextView = (TextView) findViewById(R.id.textview_location);
         mAndroidImageView = (ImageView) findViewById(R.id.imageview_android);
 
@@ -117,16 +116,26 @@ public class MainActivity extends AppCompatActivity implements
             }
         });
 
-        // Start the Place Picker Dialog
-        mPlacePickerButton.setOnClickListener(new View.OnClickListener() {
+        // Set up the Place Autocomplete search bar
+        mAutocompleteFragment = (PlaceAutocompleteFragment)
+                getFragmentManager().findFragmentById(R.id.place_autocomplete_fragment);
+
+        // Get the result from the Autocomplete search bar
+        mAutocompleteFragment.setOnPlaceSelectedListener(new PlaceSelectionListener() {
             @Override
-            public void onClick(View v) {
-                PlacePicker.IntentBuilder builder = new PlacePicker.IntentBuilder();
-                try {
-                    startActivityForResult(builder.build(MainActivity.this), REQUEST_PICK_PLACE);
-                } catch (GooglePlayServicesRepairableException | GooglePlayServicesNotAvailableException e) {
-                    e.printStackTrace();
-                }
+            public void onPlaceSelected(Place place) {
+                mLastAddress = place.getAddress().toString();
+                mLastPlaceName = place.getName().toString();
+                mLastUpdateDate = System.currentTimeMillis();
+                setAndroidType(place);
+                mLocationTextView.setText(
+                        getString(R.string.address_text, place.getName(),
+                                place.getAddress(), mLastUpdateDate));
+            }
+
+            @Override
+            public void onError(Status status) {
+                Log.e(TAG, "An error occurred: " + status);
             }
         });
 
@@ -198,6 +207,8 @@ public class MainActivity extends AppCompatActivity implements
                     }
                 });
             }
+
+            mAutocompleteFragment.setText("");
         } else {
             Toast.makeText(MainActivity.this, R.string.google_api_client_not_connected,
                     Toast.LENGTH_SHORT).show();
